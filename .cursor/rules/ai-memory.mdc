@@ -1,0 +1,15 @@
+---
+description: Always load TraceX AI project memory before any work
+alwaysApply: true
+---
+
+# TraceX AI memory
+
+Before any task in this project:
+
+1. Read `/Users/thevaidya45/TraceX AI/AI_MEMORY.md` completely.
+2. Inspect current project files.
+3. If memory and code disagree, the code wins; then update `AI_MEMORY.md`.
+4. Continue from the current state. Do not rebuild Module 1 or invent lost-item/CCTV features.
+
+After every meaningful development task, update `AI_MEMORY.md` (append history; never wipe useful history). Never write passwords, API keys, JWT secrets, OTPs, or `.env` values into that file.

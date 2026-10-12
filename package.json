@@ -1,0 +1,22 @@
+{
+  "name": "tracex-ai",
+  "private": true,
+  "scripts": {
+    "backend": "npm run dev --prefix backend",
+    "frontend": "npm run dev --prefix frontend",
+    "seed": "npm run seed --prefix backend",
+    "create-admin": "npm run create-admin --prefix backend",
+    "test:module1": "npm run test:module1 --prefix backend",
+    "test:module2": "npm run test:module2 --prefix backend",
+    "test:module3": "npm run test:module3 --prefix backend",
+    "test:module4": "npm run test:module4 --prefix backend",
+    "test:module5": "npm run test:module5 --prefix backend",
+    "ai:setup": "npm run ai:setup --prefix backend"
+  },
+  "dependencies": {
+    "multer": "^2.3.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
+  }
+}

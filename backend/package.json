@@ -1,0 +1,39 @@
+{
+  "name": "tracex-ai-backend",
+  "version": "1.0.0",
+  "description": "TraceX AI Module 1 backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch-path=server.js --watch-path=app.js --watch-path=config --watch-path=controllers --watch-path=middleware --watch-path=models --watch-path=routes --watch-path=services --watch-path=utils --watch-preserve-output server.js",
+    "mongo:local": "node scripts/localMongo.js",
+    "seed": "node scripts/seed.js",
+    "create-admin": "node scripts/createAdmin.js",
+    "test:module1": "node scripts/testModule1.js",
+    "test:module2": "node scripts/testModule2.js",
+    "test:module3": "node scripts/testModule3.js",
+    "test:module4": "node scripts/testModule4.js",
+    "test:module5": "node scripts/testModule5.js",
+    "test:module6": "node scripts/testModule6.js",
+    "ai:setup": "python3 -m venv ai/.venv && ai/.venv/bin/python -m pip install -r ai/requirements.txt",
+    "ai:check": "node scripts/checkAiPipeline.js",
+    "check:e2e": "node scripts/checkEndToEnd.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "multer": "^2.0.2",
+    "resend": "^6.26.0"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0",
+    "supertest": "^7.1.4"
+  }
+}
