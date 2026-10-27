@@ -21,9 +21,10 @@ function Section({ title, children }) {
   );
 }
 
-function ItemAnalysis({ itemAnalysis }) {
+function ItemAnalysis({ itemAnalysis, clockNote }) {
   return (
     <>
+      {clockNote ? <p className="muted-text">{clockNote}</p> : null}
       <dl className="analysis-facts">
         <div>
           <dt>Item last seen</dt>
@@ -98,7 +99,7 @@ export default function RecordingAnalysis({ recording, extracting, onExtract, on
       ) : (
         <>
           <Section title="Item analysis">
-            <ItemAnalysis itemAnalysis={itemAnalysis} />
+            <ItemAnalysis itemAnalysis={itemAnalysis} clockNote={recording.clockNote} />
           </Section>
 
           <Section title="Evidence frames">

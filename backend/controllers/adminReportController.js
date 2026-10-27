@@ -291,7 +291,7 @@ async function sendCommunityEmail(req, res, next) {
         ? (attempt >= MAX_COMMUNITY_EMAIL_SENDS
           ? 'Community email alert sent. No further sends are allowed for this report.'
           : 'Community email alert sent. You can send this alert one more time if needed.')
-        : `Community email was delivered to ${sentCount} of ${uniqueMembers.length} members. Some campus addresses could not be delivered with the current test sender.`,
+        : `Community email was delivered to ${sentCount} of ${uniqueMembers.length} members. Some addresses could not be delivered.`,
       report: mapReport(updated, {
         hasImage: Boolean(updated.imageKey),
         includeReporterEmail: true,

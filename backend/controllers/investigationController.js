@@ -67,7 +67,7 @@ function parseIsoDate(value, label, { allowFuture = false } = {}) {
     const today = new Date();
     const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
     if (date > todayUtc) {
-      throw new AppError(`Please enter a valid ${label}.`, 400);
+      throw new AppError(`The ${label} cannot be in the future.`, 400);
     }
   }
   return date;
@@ -85,8 +85,13 @@ function parseNotes(value) {
 }
 
 async function nextCaseIdentity() {
-  const last = await Investigation.findOne().sort({ caseSeq: -1 }).select('caseSeq');
-  const caseSeq = last ? last.caseSeq + 1 : 1;
+  // Older investigation documents have no caseSeq. Sorting those first made
+  // the next number NaN and the create request failed validation.
+  const [row] = await Investigation.aggregate([
+    { $group: { _id: null, maxSeq: { $max: '$caseSeq' } } }
+  ]);
+  const highest = row && Number.isFinite(row.maxSeq) ? row.maxSeq : 0;
+  const caseSeq = highest + 1;
   return {
     caseSeq,
     caseId: `INV-${String(caseSeq).padStart(4, '0')}`

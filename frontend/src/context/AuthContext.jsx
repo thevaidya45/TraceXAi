@@ -79,7 +79,8 @@ export function AuthProvider({ children }) {
           const res = await authService.register(payload);
           return {
             email: res.data.email || payload.email,
-            message: res.data.message
+            message: res.data.message,
+            verificationRequired: Boolean(res.data.verificationRequired)
           };
         } catch (error) {
           throw new Error(getErrorMessage(error, 'Unable to create your account. Please try again.'));
@@ -97,7 +98,10 @@ export function AuthProvider({ children }) {
       async requestOtp(email) {
         try {
           const res = await authService.requestOtp({ email });
-          return res.data.message || 'OTP sent successfully.';
+          return {
+            message: res.data.message || 'OTP sent successfully.',
+            verificationRequired: Boolean(res.data.verificationRequired)
+          };
         } catch (error) {
           throw new Error(getErrorMessage(error, 'OTP could not be sent. Please try again.'));
         }

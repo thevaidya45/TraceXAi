@@ -255,7 +255,23 @@ function deriveItemTimeline({ itemTracks, sampleTimestamps, durationSeconds, tol
   // is confirmed at the first sampled frame once the tolerance window passed.
   const confirmation = samples.find((value) => value >= lastSeen + tolerance);
 
+  // The file can end before that window. A long gap with no further sighting
+  // is still an absence: the item is gone by the last frame, and the missing
+  // duration is the time from the last sighting to the end of the recording.
+  // A gap shorter than half the usual window stays unconfirmed, so a detection
+  // that simply stops a moment before the file ends is not called a disappearance.
   if (confirmation === undefined) {
+    if (observedAbsence > tolerance / 2 && observedAbsence >= 3 && observedEnd > lastSeen) {
+      return {
+        firstSeenSeconds: round(firstSeen),
+        lastSeenSeconds: round(lastSeen),
+        disappearanceSeconds: round(observedEnd),
+        disappearanceCertainty: 'moderate',
+        observedAbsenceSeconds: round(observedAbsence),
+        missingDurationSeconds: round(observedEnd - lastSeen),
+        endedDuringAbsence: true
+      };
+    }
     return {
       firstSeenSeconds: round(firstSeen),
       lastSeenSeconds: round(lastSeen),
@@ -306,12 +322,19 @@ function buildCompletedUpdate(result, target) {
 
   let note = target.supported ? null : target.note;
   if (target.supported && itemTracks.length === 0) {
-    note = 'The reported item was not detected in this recording.';
+    const carried = Number(result.carriedItemDetections) || 0;
+    note = carried > 0
+      ? 'The reported item was not detected on its own in this recording. Objects overlapping a person were not treated as the lost item.'
+      : 'The reported item was not detected in this recording.';
   }
   if (video.truncated) {
     note = note
       ? `${note} Analysis stopped at the configured frame limit.`
       : 'Analysis stopped at the configured frame limit.';
+  }
+  if (timeline.endedDuringAbsence) {
+    const endedNote = 'The item does not appear again. The recording ends before the usual absence check, so the disappearance is estimated at the end of the file and the missing duration runs from the last sighting to that end.';
+    note = note ? `${note} ${endedNote}` : endedNote;
   }
 
   return {
@@ -344,7 +367,58 @@ function buildCompletedUpdate(result, target) {
       itemDetections: Number(counts.itemDetections) || 0,
       uniquePersonTracks: (result.personTracks || []).length,
       uniqueItemTracks: (result.itemTracks || []).length
-    }
+    },
+    videoClock: storedVideoClock(result.videoClock)
+  };
+}
+
+function sanitizeClockEvents(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((event) => {
+      const clock = String(event && event.clock || '');
+      const videoSeconds = Number(event && event.videoSeconds);
+      if (!/^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/.test(clock) || !Number.isFinite(videoSeconds)) {
+        return null;
+      }
+      const readAt = Number(event.readAtSeconds);
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(event.date || '')) ? String(event.date) : null;
+      return {
+        videoSeconds: round(videoSeconds, 3),
+        readAtSeconds: Number.isFinite(readAt) ? round(readAt, 3) : round(videoSeconds, 3),
+        clock,
+        date
+      };
+    })
+    .filter(Boolean);
+}
+
+function storedVideoClock(raw) {
+  const empty = {
+    reliable: false,
+    anchorVideoSeconds: null,
+    anchorClock: null,
+    anchorDate: null,
+    events: []
+  };
+  const events = sanitizeClockEvents(raw && raw.events);
+  const clock = String(raw && raw.anchorClock || '');
+  const anchorOk = raw && raw.reliable === true && /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/.test(clock);
+  if (!anchorOk && events.length === 0) {
+    return empty;
+  }
+  const anchorVideoSeconds = Number(raw && raw.anchorVideoSeconds);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(raw && raw.anchorDate || ''))
+    ? String(raw.anchorDate)
+    : (events.find((event) => event.date) || {}).date || null;
+  return {
+    reliable: true,
+    anchorVideoSeconds: anchorOk && Number.isFinite(anchorVideoSeconds) ? round(anchorVideoSeconds, 3) : null,
+    anchorClock: anchorOk ? clock : null,
+    anchorDate: date,
+    events
   };
 }
 
@@ -387,17 +461,102 @@ async function settleInvestigationStatus(investigationId) {
   }
 }
 
+function eventSeconds(update) {
+  const values = [
+    update.itemFirstSeenSeconds,
+    update.itemLastSeenSeconds,
+    update.disappearanceSeconds
+  ];
+  for (const track of update.itemTracking || []) {
+    values.push(track.firstSeenSeconds, track.lastSeenSeconds);
+  }
+  const unique = [];
+  for (const value of values) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      continue;
+    }
+    const rounded = round(seconds, 3);
+    if (!unique.some((existing) => Math.abs(existing - rounded) < 0.05)) {
+      unique.push(rounded);
+    }
+  }
+  return unique;
+}
+
+async function readEventClocks(videoPath, seconds) {
+  const wanted = (Array.isArray(seconds) ? seconds : []).filter((value) => Number.isFinite(Number(value)));
+  if (!videoPath || wanted.length === 0) {
+    return [];
+  }
+  const runId = crypto.randomUUID();
+  const outPath = path.join(os.tmpdir(), `tracex-clock-${runId}.json`);
+  const script = path.join(config.AI_DIR, 'read_event_clocks.py');
+  try {
+    const exit = await new Promise((resolve) => {
+      let child;
+      try {
+        child = spawn(
+          config.PYTHON_BIN,
+          [script, '--video', videoPath, '--seconds', wanted.join(','), '--out', outPath],
+          {
+            cwd: config.AI_DIR,
+            env: workerEnv(),
+            stdio: ['ignore', 'ignore', 'pipe'],
+            timeout: 120000,
+            killSignal: 'SIGKILL'
+          }
+        );
+      } catch (err) {
+        resolve({ spawnError: err });
+        return;
+      }
+      child.on('error', (err) => resolve({ spawnError: err }));
+      child.on('close', (code) => resolve({ code }));
+    });
+    if (exit.spawnError || exit.code !== 0) {
+      return [];
+    }
+    const parsed = JSON.parse(await fsp.readFile(outPath, 'utf8'));
+    return sanitizeClockEvents(parsed && parsed.events);
+  } catch {
+    return [];
+  } finally {
+    await fsp.unlink(outPath).catch(() => {});
+  }
+}
+
+async function attachEventClocks(update, videoPath) {
+  const events = await readEventClocks(videoPath, eventSeconds(update));
+  if (events.length === 0) {
+    return update;
+  }
+  const current = update.videoClock || {};
+  const date = (events.find((event) => event.date) || {}).date || current.anchorDate || null;
+  update.videoClock = {
+    reliable: Boolean(current.anchorClock) || events.length > 0,
+    anchorVideoSeconds: current.anchorClock ? current.anchorVideoSeconds : null,
+    anchorClock: current.anchorClock || null,
+    anchorDate: date,
+    events
+  };
+  return update;
+}
+
 async function executeJob({ analysisId, investigationId, videoPath, itemClasses, target }) {
   let update;
   try {
     const result = await service.runWorker({ videoPath, itemClasses });
-    update = result.ok
-      ? buildCompletedUpdate(result, target)
-      : {
+    if (result.ok) {
+      update = buildCompletedUpdate(result, target);
+      await attachEventClocks(update, videoPath);
+    } else {
+      update = {
         processingStatus: 'FAILED',
         processingCompletedAt: new Date(),
         processingError: failureMessage(result.errorCode)
       };
+    }
   } catch (err) {
     console.error('CCTV analysis job error:', (err && err.name) || 'Error');
     update = {
@@ -508,6 +667,13 @@ async function startAnalysis({ investigation, footage, item, userId, allowRetry 
     frameInterval: null,
     modelName: null,
     confidenceThreshold: null,
+    videoClock: {
+      reliable: false,
+      anchorVideoSeconds: null,
+      anchorClock: null,
+      anchorDate: null,
+      events: []
+    },
     detectionStatistics: {
       framesSampled: 0,
       personDetections: 0,
@@ -588,19 +754,114 @@ function formatDuration(seconds) {
   return parts.join(' ');
 }
 
-/** Clock time inside the recording, using the recorded start time if present. */
-function formatClock(recordingStartTime, offsetSeconds) {
-  if (!recordingStartTime || !Number.isFinite(offsetSeconds) || offsetSeconds < 0) {
-    return null;
+function parseClockSeconds(value) {
+  const text = String(value || '');
+  const withSeconds = /^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$/.exec(text);
+  if (withSeconds) {
+    return Number(withSeconds[1]) * 3600 + Number(withSeconds[2]) * 60 + Number(withSeconds[3]);
   }
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(recordingStartTime));
-  if (!match) {
-    return null;
+  const minutes = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(text);
+  if (minutes) {
+    return Number(minutes[1]) * 3600 + Number(minutes[2]) * 60;
   }
-  const base = Number(match[1]) * 3600 + Number(match[2]) * 60;
-  const total = Math.floor(base + offsetSeconds) % 86400;
+  return null;
+}
+
+function formatHms(totalSeconds) {
+  const total = ((Math.floor(totalSeconds) % 86400) + 86400) % 86400;
   const pad = (value) => String(value).padStart(2, '0');
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+}
+
+/**
+ * Clock time for one offset. A string base is the start time entered for the
+ * file. An overlay base is the clock actually printed on the video.
+ */
+function clockFromEvents(events, offsetSeconds) {
+  if (!Array.isArray(events) || !Number.isFinite(offsetSeconds)) {
+    return null;
+  }
+  let best = null;
+  let bestDistance = 0.05;
+  for (const event of events) {
+    const at = Number(event && event.videoSeconds);
+    if (!event || !event.clock || !Number.isFinite(at)) {
+      continue;
+    }
+    const distance = Math.abs(at - offsetSeconds);
+    if (distance <= bestDistance) {
+      best = event;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function formatClock(timeBase, offsetSeconds) {
+  if (!timeBase || !Number.isFinite(offsetSeconds) || offsetSeconds < 0) {
+    return null;
+  }
+  if (typeof timeBase === 'object') {
+    const event = clockFromEvents(timeBase.events, offsetSeconds);
+    if (event) {
+      return event.clock;
+    }
+    const anchor = parseClockSeconds(timeBase.anchorClock);
+    const anchorAt = Number(timeBase.anchorVideoSeconds);
+    if (anchor === null || !Number.isFinite(anchorAt)) {
+      return null;
+    }
+    return formatHms(anchor + (offsetSeconds - anchorAt));
+  }
+  const base = parseClockSeconds(timeBase);
+  if (base === null || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(timeBase))) {
+    return null;
+  }
+  return formatHms(base + offsetSeconds);
+}
+
+/** Prefer the clock printed on the video when that reading checked out. */
+function clockBase(analysis, recordingStartTime) {
+  const overlay = analysis && analysis.videoClock;
+  const events = overlay && Array.isArray(overlay.events)
+    ? overlay.events.filter((event) => event && event.clock)
+    : [];
+  if (events.length > 0) {
+    return {
+      source: 'frames',
+      events,
+      anchorVideoSeconds: overlay.anchorClock ? Number(overlay.anchorVideoSeconds) || 0 : null,
+      anchorClock: overlay.anchorClock || null,
+      anchorDate: overlay.anchorDate || (events.find((event) => event.date) || {}).date || null
+    };
+  }
+  if (overlay && overlay.reliable && overlay.anchorClock) {
+    return {
+      source: 'overlay',
+      anchorVideoSeconds: Number(overlay.anchorVideoSeconds) || 0,
+      anchorClock: overlay.anchorClock,
+      anchorDate: overlay.anchorDate || null,
+      events: []
+    };
+  }
+  return recordingStartTime || null;
+}
+
+function clockNote(timeBase) {
+  if (timeBase && typeof timeBase === 'object' && Array.isArray(timeBase.events) && timeBase.events.length > 0) {
+    return timeBase.anchorDate
+      ? `Item times follow the clock printed on the video (${timeBase.anchorDate}).`
+      : 'Item times follow the clock printed on the video.';
+  }
+  if (timeBase && typeof timeBase === 'object' && timeBase.source === 'overlay') {
+    return timeBase.anchorDate
+      ? `Times follow the clock printed on the video (${timeBase.anchorDate}).`
+      : 'Times follow the clock printed on the video.';
+  }
+  if (typeof timeBase === 'string' && timeBase) {
+    return 'Times are calculated from the start time entered for this file, not from a clock printed on the video.';
+  }
+  return null;
 }
 
 function timePoint(seconds, recordingStartTime) {
@@ -634,6 +895,7 @@ function mapTrack(row, recordingStartTime) {
 /** API shape for one recording's analysis. Labels are resolved here. */
 function mapAnalysis(analysis, footage) {
   const recordingStartTime = footage ? footage.recordingStartTime : null;
+  const timeBase = clockBase(analysis, recordingStartTime);
   const status = analysis ? analysis.processingStatus : 'AVAILABLE';
 
   if (!analysis) {
@@ -653,15 +915,16 @@ function mapAnalysis(analysis, footage) {
       statistics: null,
       lastSeenLabel: NOT_DETERMINED,
       disappearanceLabel: NOT_RELIABLE,
-      missingDurationLabel: NOT_DETERMINED
+      missingDurationLabel: NOT_DETERMINED,
+      clockNote: null
     };
   }
 
   const completed = status === 'COMPLETED';
-  const lastSeen = completed ? timePoint(analysis.itemLastSeenSeconds, recordingStartTime) : null;
-  const firstSeen = completed ? timePoint(analysis.itemFirstSeenSeconds, recordingStartTime) : null;
+  const lastSeen = completed ? timePoint(analysis.itemLastSeenSeconds, timeBase) : null;
+  const firstSeen = completed ? timePoint(analysis.itemFirstSeenSeconds, timeBase) : null;
   const disappearance = completed
-    ? timePoint(analysis.disappearanceSeconds, recordingStartTime)
+    ? timePoint(analysis.disappearanceSeconds, timeBase)
     : null;
 
   return {
@@ -697,13 +960,13 @@ function mapAnalysis(analysis, footage) {
         detected: (analysis.itemTracking || []).length > 0,
         firstSeen,
         lastSeen,
-        tracks: (analysis.itemTracking || []).map((row) => mapTrack(row, recordingStartTime))
+        tracks: (analysis.itemTracking || []).map((row) => mapTrack(row, timeBase))
       }
       : null,
     persons: completed
       ? {
         uniqueCount: (analysis.detectionStatistics && analysis.detectionStatistics.uniquePersonTracks) || 0,
-        tracks: (analysis.anonymousPersonTracking || []).map((row) => mapTrack(row, recordingStartTime))
+        tracks: (analysis.anonymousPersonTracking || []).map((row) => mapTrack(row, timeBase))
       }
       : null,
     statistics: completed
@@ -719,8 +982,12 @@ function mapAnalysis(analysis, footage) {
     observedAbsenceLabel: completed && Number.isFinite(analysis.observedAbsenceSeconds)
       ? formatDuration(analysis.observedAbsenceSeconds)
       : null,
+    clockNote: completed ? clockNote(timeBase) : null,
     lastSeenLabel: lastSeen ? lastSeen.label : NOT_DETERMINED,
     firstSeenLabel: firstSeen ? firstSeen.label : NOT_DETERMINED,
+    disappearanceRangeLabel: lastSeen && disappearance && disappearance.seconds > lastSeen.seconds
+      ? `${lastSeen.clockTime || lastSeen.offsetLabel} – ${disappearance.label}`
+      : null,
     disappearanceLabel: disappearance ? disappearance.label : NOT_RELIABLE,
     missingDurationLabel: completed && Number.isFinite(analysis.missingDurationSeconds)
       ? formatDuration(analysis.missingDurationSeconds)
@@ -744,6 +1011,10 @@ const service = {
   formatDuration,
   formatOffset,
   formatClock,
+  clockBase,
+  clockNote,
+  readEventClocks,
+  attachEventClocks,
   timePoint,
   isRunning,
   activeJob,

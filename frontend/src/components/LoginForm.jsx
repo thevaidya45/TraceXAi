@@ -11,6 +11,12 @@ export default function LoginForm() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  function openCodeStep(result) {
+    navigate(result.verificationRequired ? '/verify-email' : '/verify-otp', {
+      state: { email: email.trim(), notice: result.message }
+    });
+  }
+
   async function handleLogin(event) {
     event.preventDefault();
     setError('');
@@ -23,6 +29,15 @@ export default function LoginForm() {
       const result = await login({ email: email.trim(), password });
       navigate(dashboardPath(result.user.role), { replace: true });
     } catch (err) {
+      if (/verify your email before signing in/i.test(err.message || '')) {
+        try {
+          openCodeStep(await requestOtp(email.trim()));
+          return;
+        } catch (sendErr) {
+          setError(sendErr.message || err.message);
+          return;
+        }
+      }
       setError(err.message || 'Unable to sign in. Please try again.');
     } finally {
       setSubmitting(false);
@@ -37,10 +52,7 @@ export default function LoginForm() {
     }
     setSubmitting(true);
     try {
-      const message = await requestOtp(email.trim());
-      navigate('/verify-otp', {
-        state: { email: email.trim(), notice: message }
-      });
+      openCodeStep(await requestOtp(email.trim()));
     } catch (err) {
       setError(err.message || 'OTP could not be sent. Please try again.');
     } finally {

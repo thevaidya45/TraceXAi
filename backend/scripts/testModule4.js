@@ -149,6 +149,12 @@ async function run() {
   assert(otherLost.status === 201, 'second community lost report created');
   const otherLostId = otherLost.body.report.id;
 
+  await Investigation.collection.insertOne({
+    status: 'no_match',
+    createdAt: new Date(),
+    updatedAt: new Date()
+  });
+
   const studentCreate = await request.post('/api/admin/investigations').set('Cookie', alpha).send({ itemId: lostId });
   assert(studentCreate.status === 403, 'student cannot create investigation');
 

@@ -127,6 +127,10 @@ async function run() {
   const unverifiedLogin = await login('newbie@college.test');
   assert(unverifiedLogin.status === 403, 'unverified user cannot login');
 
+  const continueOtp = await request.post('/api/auth/request-otp').send({ email: 'newbie@college.test' });
+  assert(continueOtp.status === 200, 'unverified account can continue with email OTP');
+  assert(continueOtp.body.verificationRequired === true, 'new account OTP continues into email verification');
+
   const verify = await request.post('/api/auth/verify-email').send({
     email: 'newbie@college.test',
     otp: lastOtp

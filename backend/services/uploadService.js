@@ -302,6 +302,14 @@ async function saveCctvVideo(file) {
       await fsp.writeFile(dest, file.buffer);
     }
 
+    // Keep the original if the browser-compatible copy cannot be made.
+    try {
+      const { prepareBrowserPlayback } = require('./cctvTranscodeService');
+      await prepareBrowserPlayback(dest);
+    } catch (transcodeErr) {
+      console.error('Unable to prepare a browser preview for CCTV.', transcodeErr && transcodeErr.name);
+    }
+
     return {
       fileKey,
       displayName: sanitizeCctvDisplayName(file.originalname, ext),
@@ -342,7 +350,8 @@ function streamCctvFile(req, res, filePath, contentType, downloadName) {
   res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Cache-Control', 'private, no-store');
+  // Chrome can play the clip, but no-store prevents the video element from buffering it.
+  res.setHeader('Cache-Control', 'private, no-cache');
 
   const range = req.headers.range;
   if (range) {

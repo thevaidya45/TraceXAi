@@ -43,8 +43,12 @@ export default function VerifyOtp() {
     }
     setSubmitting(true);
     try {
-      const message = await requestOtp(email);
-      setNotice(message || 'OTP sent successfully.');
+      const result = await requestOtp(email);
+      if (result.verificationRequired) {
+        navigate('/verify-email', { replace: true, state: { email, notice: result.message } });
+        return;
+      }
+      setNotice(result.message || 'OTP sent successfully.');
     } catch (err) {
       setError(err.message || 'OTP could not be sent. Please try again.');
       setNotice('');

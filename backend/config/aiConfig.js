@@ -56,6 +56,9 @@ const ITEM_KEYWORD_CLASSES = [
   [['backpack', 'rucksack', 'school bag', 'college bag'], ['backpack']],
   [['handbag', 'purse', 'sling bag'], ['handbag']],
   [['suitcase', 'luggage', 'trolley bag'], ['suitcase']],
+  // A plain "bag" is not a suitcase. Suitcase stays on the specific words above
+  // so cardboard boxes are not reported as the lost bag.
+  [['bag'], ['backpack', 'handbag']],
   [['umbrella'], ['umbrella']],
   [['water bottle', 'bottle', 'flask'], ['bottle']],
   [['tumbler', 'coffee cup', 'mug', 'cup'], ['cup']],
@@ -73,7 +76,7 @@ const ITEM_KEYWORD_CLASSES = [
 
 const CATEGORY_CLASSES = {
   electronics: ['laptop', 'cell phone', 'keyboard', 'mouse', 'remote'],
-  bags: ['backpack', 'handbag', 'suitcase'],
+  bags: ['backpack', 'handbag'],
   books: ['book'],
   accessories: ['umbrella', 'tie', 'clock']
 };

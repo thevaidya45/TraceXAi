@@ -117,6 +117,25 @@ const cctvAnalysisSchema = new mongoose.Schema(
       type: Number,
       default: null
     },
+    // Clock printed on the picture. `events` are read from the frame at an item
+    // timestamp. The anchor is only used when that clock moves with the file.
+    videoClock: {
+      reliable: { type: Boolean, default: false },
+      anchorVideoSeconds: { type: Number, default: null },
+      anchorClock: { type: String, default: null, maxlength: 8 },
+      anchorDate: { type: String, default: null, maxlength: 10 },
+      events: {
+        type: [
+          {
+            videoSeconds: { type: Number, required: true },
+            readAtSeconds: { type: Number, default: null },
+            clock: { type: String, required: true, maxlength: 8 },
+            date: { type: String, default: null, maxlength: 10 }
+          }
+        ],
+        default: []
+      }
+    },
 
     itemDetectionSupported: {
       type: Boolean,

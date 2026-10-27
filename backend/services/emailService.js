@@ -1,84 +1,4 @@
-const { Resend } = require('resend');
-const { AppError } = require('../utils/AppError');
-
-function isEmailConfigured() {
-  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
-}
-
-function getFromAddress() {
-  const name = process.env.RESEND_FROM_NAME || 'TraceX AI';
-  const email = process.env.RESEND_FROM_EMAIL;
-  return `${name} <${email}>`;
-}
-
-function getClient(kind = 'otp') {
-  if (!isEmailConfigured()) {
-    throw new AppError(
-      kind === 'alert'
-        ? 'The community email could not be sent. Please try again.'
-        : 'OTP could not be sent. Please try again.',
-      503
-    );
-  }
-  return new Resend(process.env.RESEND_API_KEY);
-}
-
-function resendErrorMessage(error, kind = 'otp') {
-  const message = error && error.message ? String(error.message) : '';
-  const testSender = /only send testing emails/i.test(message) || /verify a domain/i.test(message) || /domain is not verified/i.test(message);
-  if (kind === 'alert') {
-    if (testSender) {
-      return 'Community mail can only be delivered to the email on your sending account until a sending domain is verified. Other campus addresses were not delivered.';
-    }
-    return 'The community email could not be sent. Please try again.';
-  }
-  if (testSender) {
-    return 'OTP could not be sent to this email. With the current test sender, mail is only delivered to the email on your sending account. Check Spam and Promotions, or verify a sending domain.';
-  }
-  return 'OTP could not be sent. Please try again.';
-}
-
-async function sendEmail({ to, subject, html, text, kind = 'otp', attachments }) {
-  try {
-    const resend = getClient(kind);
-    const payload = {
-      from: getFromAddress(),
-      to: [to],
-      subject,
-      html,
-      text
-    };
-    if (attachments && attachments.length) {
-      payload.attachments = attachments.map((item) => ({
-        filename: item.filename,
-        content: item.content,
-        contentType: item.contentType,
-        contentId: item.contentId
-      }));
-    }
-    const { data, error } = await resend.emails.send(payload);
-
-    if (error) {
-      console.error('Unable to send email.', error.name || '', error.statusCode || '', error.message || '');
-      throw new AppError(resendErrorMessage(error, kind), 503);
-    }
-
-    if (data && data.id) {
-      console.info('[email] accepted by Resend', data.id);
-    }
-  } catch (err) {
-    if (err instanceof AppError) {
-      throw err;
-    }
-    console.error('Unable to send email.', err && err.name);
-    throw new AppError(
-      kind === 'alert'
-        ? 'The community email could not be sent. Please try again.'
-        : 'OTP could not be sent. Please try again.',
-      503
-    );
-  }
-}
+const { sendEmail, isEmailConfigured } = require('../utils/sendEmail');
 
 function otpEmailCopy(purpose) {
   if (purpose === 'reset') {
@@ -103,9 +23,9 @@ function otpEmailHtml(otp, purpose) {
   const copy = otpEmailCopy(purpose);
   return `
     <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1c2430;">
-      <h2 style="color:#1f3b5a;margin-bottom:8px;">TRACE X AI</h2>
+      <h2 style="color:#0B1220;margin-bottom:8px;">TraceX AI</h2>
       <p style="margin:0 0 16px;">${copy.intro}</p>
-      <p style="font-size:28px;font-weight:bold;margin:16px 0;font-family:Consolas,Menlo,monospace;">${otp}</p>
+      <p style="font-size:28px;font-weight:bold;letter-spacing:4px;margin:16px 0;font-family:Consolas,Menlo,monospace;">${otp}</p>
       <p>This 6-digit code expires in 10 minutes.</p>
       <p>Do not share this code with anyone. TraceX AI will never ask you for this code by phone.</p>
       <p style="color:#5b6775;font-size:13px;">If you did not request this, you can ignore this email.</p>
@@ -116,7 +36,7 @@ function otpEmailHtml(otp, purpose) {
 function otpEmailText(otp, purpose) {
   const copy = otpEmailCopy(purpose);
   return [
-    'TRACE X AI',
+    'TraceX AI',
     copy.intro,
     `Your code is ${otp}.`,
     'This 6-digit code expires in 10 minutes.',
@@ -161,7 +81,7 @@ async function sendCommunityItemAlert(to, report, image) {
   const html = `
     <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111827;">
       <h2 style="color:#0B1220;margin-bottom:8px;">TraceX AI</h2>
-      <p style="margin:0 0 12px;color:#667085;">Campus lost &amp; found alert</p>
+      <p style="margin:0 0 12px;color:#667085;">Campus lost and found alert</p>
       <p><strong>${escapeHtml(typeLabel)}</strong>: ${escapeHtml(report.itemName)}</p>
       <p>Category: ${escapeHtml(report.category || '')}</p>
       <p>Location: ${escapeHtml(report.location || '')}</p>
@@ -169,7 +89,7 @@ async function sendCommunityItemAlert(to, report, image) {
       <p>${escapeHtml((report.description || '').slice(0, 280))}</p>
       ${photoHtml}
       <p>Sign in to TraceX AI to view the report.</p>
-      <p><a href="${origin}/login" style="color:#2563EB;">${origin}/login</a></p>
+      <p><a href="${origin}/login" style="color:#2563EB;">Open TraceX AI</a></p>
     </div>
   `;
   const text = [

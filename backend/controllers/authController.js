@@ -72,6 +72,19 @@ async function register(req, res, next) {
 
     const existing = await User.findOne({ email });
     if (existing) {
+      if (existing.emailVerified === false && existing.status !== 'inactive') {
+        const message = await sendAccountOtp(email, otpService.PURPOSE_VERIFY);
+        securityLog('otp_requested', { email, reason: 'verify' });
+        res.status(200).json({
+          message,
+          email,
+          verificationRequired: true
+        });
+        return;
+      }
+      if (existing.status === 'inactive') {
+        throw new AppError('Your account is currently inactive. Please contact the administrator.', 403);
+      }
       throw new AppError('An account with this email already exists.', 409);
     }
 
@@ -144,6 +157,24 @@ async function login(req, res, next) {
   }
 }
 
+function isOtpCooldown(err) {
+  return Boolean(err && err.statusCode === 429 && /wait before requesting another OTP/i.test(String(err.message || '')));
+}
+
+async function sendAccountOtp(email, purpose) {
+  try {
+    await otpService.createAndSendOtp(email, purpose);
+    return purpose === otpService.PURPOSE_VERIFY
+      ? 'A verification code has been sent to your email.'
+      : 'OTP sent successfully.';
+  } catch (err) {
+    if (purpose === otpService.PURPOSE_VERIFY && isOtpCooldown(err)) {
+      return 'Enter the verification code already sent to your email.';
+    }
+    throw err;
+  }
+}
+
 async function requestOtp(req, res, next) {
   try {
     const email = normalizeEmail(req.body.email);
@@ -161,13 +192,16 @@ async function requestOtp(req, res, next) {
     }
 
     if (user.emailVerified === false) {
-      throw new AppError('Please verify your email before signing in.', 403);
+      const message = await sendAccountOtp(email, otpService.PURPOSE_VERIFY);
+      securityLog('otp_requested', { email, reason: 'verify' });
+      res.json({ message, verificationRequired: true });
+      return;
     }
 
-    await otpService.createAndSendOtp(email, otpService.PURPOSE_LOGIN);
+    const message = await sendAccountOtp(email, otpService.PURPOSE_LOGIN);
     securityLog('otp_requested', { email, reason: 'login' });
 
-    res.json({ message: 'OTP sent successfully.' });
+    res.json({ message });
   } catch (err) {
     next(err);
   }

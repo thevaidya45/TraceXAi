@@ -499,12 +499,13 @@ function buildRecordingReview({ investigation, footage, analysis, frames }) {
     return base;
   }
 
-  const itemAnalysis = buildItemAnalysis(analysis, recordingStartTime);
-  const persons = buildPersonAnalysis(analysis, recordingStartTime);
+  const timeBase = analysisService.clockBase(analysis, recordingStartTime);
+  const itemAnalysis = buildItemAnalysis(analysis, timeBase);
+  const persons = buildPersonAnalysis(analysis, timeBase);
   const timeline = buildTimeline(analysis, persons, itemAnalysis);
-  const reviewWindow = buildReviewWindow(analysis, itemAnalysis, persons, recordingStartTime);
+  const reviewWindow = buildReviewWindow(analysis, itemAnalysis, persons, timeBase);
   const recommendation = buildRecommendation(itemAnalysis, persons, reviewWindow);
-  const evidence = buildEvidence(analysis, frames || [], investigationId, recordingStartTime);
+  const evidence = buildEvidence(analysis, frames || [], investigationId, timeBase);
 
   return {
     ...base,
@@ -530,6 +531,7 @@ function buildRecordingReview({ investigation, footage, analysis, frames }) {
         uniqueItemTracks: analysis.detectionStatistics.uniqueItemTracks
       }
       : null,
+    clockNote: analysisService.clockNote(timeBase),
     itemAnalysis,
     evidence,
     beforeAfter: buildBeforeAfter(evidence, itemAnalysis),

@@ -27,6 +27,19 @@ import {
 
 const ANALYSIS_POLL_MS = 5000;
 
+function readyToAnalyse(footageId) {
+  return {
+    footageId,
+    status: 'AVAILABLE',
+    canStart: true,
+    canRetry: false,
+    error: null,
+    lastSeenLabel: 'Not determined',
+    disappearanceLabel: 'Not reliably determined',
+    missingDurationLabel: 'Not determined'
+  };
+}
+
 export default function AdminInvestigationDetailsPage() {
   const { id } = useParams();
   const [investigation, setInvestigation] = useState(null);
@@ -42,6 +55,7 @@ export default function AdminInvestigationDetailsPage() {
   const [recordingEndTime, setRecordingEndTime] = useState('');
   const [videoFile, setVideoFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState({});
   const [missing, setMissing] = useState(false);
   const [analyses, setAnalyses] = useState({});
   const [analysisBusy, setAnalysisBusy] = useState('');
@@ -200,6 +214,14 @@ export default function AdminInvestigationDetailsPage() {
       if (recordingEndTime) formData.append('recordingEndTime', recordingEndTime);
       const res = await addCctvFootage(investigation.id, formData);
       applyInvestigation(res.data.investigation);
+      setAnalyses((current) => {
+        const next = { ...current };
+        (res.data.investigation.cctv || []).forEach((clip) => {
+          if (!next[clip.id]) next[clip.id] = readyToAnalyse(clip.id);
+        });
+        return next;
+      });
+      loadAnalyses();
       loadReview();
       setCameraLocation('');
       setRecordedDate('');
@@ -362,9 +384,21 @@ export default function AdminInvestigationDetailsPage() {
                         : ''}
                     </p>
                     <p>File: {clip.filename}</p>
-                    <video className="cctv-player" controls preload="metadata" src={clip.previewUrl}>
+                    <video
+                      className="cctv-player"
+                      controls
+                      playsInline
+                      preload="metadata"
+                      src={`${clip.previewUrl}?play=1`}
+                      onError={() => setPreviewFailed((current) => ({ ...current, [clip.id]: true }))}
+                    >
                       Preview is not available in this browser.
                     </video>
+                    {previewFailed[clip.id] ? (
+                      <p className="muted-text">
+                        The file is saved, but this browser cannot play its video codec.
+                      </p>
+                    ) : null}
                     {!closed ? (
                       <button
                         type="button"
@@ -376,7 +410,7 @@ export default function AdminInvestigationDetailsPage() {
                       </button>
                     ) : null}
                     <CctvAnalysisPanel
-                      analysis={analyses[clip.id] || null}
+                      analysis={analyses[clip.id] || readyToAnalyse(clip.id)}
                       busy={analysisBusy === clip.id}
                       disabled={closed}
                       onStart={() => runAnalysis(clip.id, false)}

@@ -293,6 +293,19 @@ async function run() {
     'umbrella report maps to the umbrella detection class'
   );
 
+  const bagTarget = analysisService.itemTargetClasses({
+    itemName: 'bag',
+    category: 'bags',
+    description: 'black colour bag'
+  });
+  assert(
+    bagTarget.supported
+      && bagTarget.classes.includes('backpack')
+      && bagTarget.classes.includes('handbag')
+      && !bagTarget.classes.includes('suitcase'),
+    'a plain bag does not include suitcase detections'
+  );
+
   const cardTarget = analysisService.itemTargetClasses({
     itemName: 'ID Card',
     category: 'documents',
@@ -320,6 +333,19 @@ async function run() {
     'missing duration stays unset when disappearance is unknown'
   );
 
+  const endedDuringAbsence = analysisService.deriveItemTimeline({
+    itemTracks: [{ firstSeenSeconds: 24.94, lastSeenSeconds: 29.66 }],
+    sampleTimestamps: [24.94, 29.66, 35, 39.7],
+    durationSeconds: 39.775,
+    toleranceSeconds: 20
+  });
+  assert(
+    endedDuringAbsence.disappearanceSeconds === 39.78
+      && endedDuringAbsence.missingDurationSeconds === 10.11
+      && endedDuringAbsence.disappearanceCertainty === 'moderate',
+    'a recording that ends during a real absence estimates disappearance at the end'
+  );
+
   const disappeared = analysisService.deriveItemTimeline({
     itemTracks: [{ firstSeenSeconds: 2, lastSeenSeconds: 30 }],
     sampleTimestamps: [0, 10, 20, 30, 35, 40, 60, 90, 119.5],
@@ -344,6 +370,16 @@ async function run() {
   assert(
     noDetections.lastSeenSeconds === null && noDetections.disappearanceSeconds === null,
     'no detections produce no invented timestamps'
+  );
+
+  const overlayClock = analysisService.formatClock(
+    { source: 'overlay', anchorVideoSeconds: 30, anchorClock: '14:30:30' },
+    64
+  );
+  assert(overlayClock === '14:31:04', 'overlay clock follows the time printed on the video');
+  assert(
+    analysisService.formatClock('00:22', 64) === '00:23:04',
+    'form start time stays the fallback when no clock is printed'
   );
 
   // ------------------------------------------------- secure file resolution

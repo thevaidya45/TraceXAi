@@ -6,6 +6,16 @@ import {
 
 const VISIBLE_TRACKS = 8;
 
+function pointLabel(point) {
+  if (!point) {
+    return '—';
+  }
+  if (point.clockTime && point.offsetLabel) {
+    return `${point.clockTime} (${point.offsetLabel})`;
+  }
+  return point.clockTime || point.offsetLabel;
+}
+
 function TrackTable({ tracks, caption }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? tracks : tracks.slice(0, VISIBLE_TRACKS);
@@ -27,8 +37,8 @@ function TrackTable({ tracks, caption }) {
           {visible.map((track) => (
             <tr key={track.trackingId}>
               <td>{track.trackingId}</td>
-              <td>{track.firstSeen ? track.firstSeen.offsetLabel : '—'}</td>
-              <td>{track.lastSeen ? track.lastSeen.offsetLabel : '—'}</td>
+              <td>{pointLabel(track.firstSeen)}</td>
+              <td>{pointLabel(track.lastSeen)}</td>
               <td>{track.framesTracked}</td>
             </tr>
           ))}
@@ -54,8 +64,8 @@ function CompletedResults({ analysis }) {
           <dd>{analysis.lastSeenLabel}</dd>
         </div>
         <div>
-          <dt>Disappearance detected</dt>
-          <dd>{analysis.disappearanceLabel}</dd>
+          <dt>Estimated disappearance</dt>
+          <dd>{analysis.disappearanceRangeLabel || analysis.disappearanceLabel}</dd>
         </div>
         <div>
           <dt>Missing duration</dt>
@@ -63,6 +73,7 @@ function CompletedResults({ analysis }) {
         </div>
       </dl>
 
+      {analysis.clockNote ? <p className="muted-text">{analysis.clockNote}</p> : null}
       {item && item.note ? <p className="module-note">{item.note}</p> : null}
 
       {analysis.disappearanceCertainty ? (
